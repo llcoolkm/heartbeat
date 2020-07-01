@@ -6,27 +6,36 @@
 #
 #------------------------------------------------------------------------------
 from socket import socket, AF_INET, SOCK_DGRAM
-from time import time, ctime, sleep
+from time import time, sleep
+from datetime import datetime
 import sys
 
-# HB server IP
+# Heartbeat server IP
 server = '127.0.0.1'
-# HB server port
+# Heartbeat server port
 port = 9999
-# HB send interval
-interval = 10
+# Heartbeat send interval
+interval = 3
 
 if len(sys.argv)>1:
-    server=sys.argv[1]
+    server=str(sys.argv[1])
 if len(sys.argv)>2:
-    port=sys.argv[2]
+    port=int(sys.argv[2])
 
-print('--- pyHeartBeat client ---')
-print('Sending heartbeat every {} second to server {}:{}'.format(interval, server, port))
+print('--- Heartbeat client ---')
+print('Sending heartbeat every {} second to server {}:{}'.format(interval,
+    server, port))
 
-hbsocket = socket(AF_INET, SOCK_DGRAM)
+# Bind a socket
+csocket = socket(AF_INET, SOCK_DGRAM)
+
+# Forever send our heartbeat
 while True:
-    hbsocket.sendto('PING'.encode(), (server, port))
-    print('Time: {}'.format(ctime(time())))
-    sleep(interval)
+    try:
+        csocket.sendto('BEAT'.encode(), (server, port))
+        print('Sent beat: {}'.format(
+            datetime.fromtimestamp(time()).strftime('%Y-%m-%d %H:%M:%S')))
+        sleep(interval)
+    except KeyboardInterrupt:
+        sys.exit(0)
 
