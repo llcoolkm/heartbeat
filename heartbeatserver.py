@@ -2,10 +2,10 @@
 #
 # Heartbeat server
 #
-# While the BeatLog thread logs each UDP packet in a dictionary, the main
-# thread periodically scans the dictionary and prints the IP addresses of the
-# clients that sent at least one packet during the run, but have
-# not sent any packet since a time longer than the definition of the timeout.
+# Listen on a port for BEAT clients to send a heartbeat. When a client has
+# sent it first heartbeat it is registered in a dictionary and if a client
+# then has not sent a heartbeat in TIMEOUT second it is logged as dead in the
+# heartbeat logfile.
 #
 # ./heartbeatserver.py <port>
 #
@@ -15,11 +15,16 @@ from threading import Lock, Thread, Event
 from time import time, sleep
 from datetime import datetime
 import sys
+import logging
 
 # Listening port
 port = 9999
 # Heartbeat timeout interval
-timeout = 10
+timeout = 60
+# Logfile
+logfile = 'heartbeat.log'
+# Loglevel
+loglevel = 'INFO'
 
 # class heartbeatdictionary: {{{
 #------------------------------------------------------------------------------
@@ -49,8 +54,7 @@ class heartbeatdictionary:
         # Create a list of keys
         self.lock.acquire()
         for key in self.dictionary.keys():
-            clients.append('{} (last heartbeat: {})'
-                .format(key, self.isotime(self.dictionary[key])))
+            clients.append([key, self.isotime(self.dictionary[key])])
         self.lock.release()
 
         return clients
@@ -75,17 +79,17 @@ class heartbeatdictionary:
     def getdead(self, timeout):
         """ Returns a list of entries older than timeout """
 
-        dead = []
+        clients = []
         when = time() - timeout
 
         # Extract timed out entries
         self.lock.acquire()
         for key in self.dictionary.keys():
             if self.dictionary[key] < when:
-                dead.append([key, self.isotime(self.dictionary[key])])
+                clients.append([key, self.isotime(self.dictionary[key])])
         self.lock.release()
 
-        return dead
+        return clients
 
 
 #}}}
@@ -151,8 +155,19 @@ class receiveheartbeat(Thread):
 def main():
     """ Listen to the heartbeats and report inactive clients """
 
+    global port, timeout, logfile, loglevel
+
+    # Setup logging
+    logger = logging.getLogger('heartbeat')
+    logger.setLevel(loglevel)
+    formatter = logging.Formatter('%(asctime)s %(name)s (%(levelname)s): %(message)s')
+
+    # Log to file
+    fh = logging.FileHandler(logfile)
+    fh.setFormatter(formatter)
+    logger.addHandler(fh)
+
     # Decide heartbeat timeout and server listening port
-    global port, timeout
     if len(sys.argv)>1:
         port=int(sys.argv[1])
     if len(sys.argv)>2:
@@ -170,24 +185,29 @@ def main():
     heartbeatthread.start()
     print('--- Heartbeat server ---')
     print('Listening on port {} with timeout {}. Ctrl-c to stop'.format(port, timeout))
+    logger.info('STARTED on PORT {} with TIMEOUT {} and LOGLEVEL {}'
+        .format(port, timeout, loglevel))
 
     # Main loop which checks for dead clients every INTERVAL
     while True:
         try:
             # Print heartbeats that have been heard
-            clients = heartbeats.getclients()
-            if clients:
+            knownclients = heartbeats.getclients()
+            if knownclients:
                 print("--- Known heartbeat clients ---")
-                print('\n'.join(heartbeats.getclients()))
+                for client in knownclients:
+                    print('{0[0]} (Last heartbeat: {0[1]})'.format(client))
+                    logger.info('KNOWN {0[0]} ({0[1]})'.format(client))
             else:
                 print("No heartbeats yet... it's very quiet out there")
 
             # Check for dead clients and print them
-            dead = heartbeats.getdead(timeout)
-            if dead:
-                print("--- Missing heartbeat clients ---")
-                for client in dead:
-                    print("{0[0]} (last heartbeat: {0[1]})".format(client))
+            deadclients = heartbeats.getdead(timeout)
+            if deadclients:
+                print("--- Dead heartbeat clients ---")
+                for client in deadclients:
+                    print("{0[0]} (Last heartbeat: {0[1]})".format(client))
+                    logger.info('DEAD {0[0]} ({0[1]})'.format(client))
             sleep(timeout)
 
         # Exit on ctrl-c but will only work if the server socket receives one

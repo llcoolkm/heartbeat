@@ -15,7 +15,7 @@ server = '127.0.0.1'
 # Heartbeat server port
 port = 9999
 # Heartbeat send interval
-interval = 3
+interval = 20
 
 if len(sys.argv)>1:
     server=str(sys.argv[1])
