@@ -192,19 +192,19 @@ def main():
     while True:
         try:
             # Print heartbeats that have been heard
-            knownclients = heartbeats.getclients()
-            if knownclients:
-                print("--- Known heartbeat clients ---")
-                for client in knownclients:
+            aliveclients = heartbeats.getclients()
+            if aliveclients:
+                print("--- beating hearts ---")
+                for client in aliveclients:
                     print('{0[0]} (Last heartbeat: {0[1]})'.format(client))
-                    logger.info('KNOWN {0[0]} ({0[1]})'.format(client))
+                    logger.info('ALIVE {0[0]} ({0[1]})'.format(client))
             else:
                 print("No heartbeats yet... it's very quiet out there")
 
             # Check for dead clients and print them
             deadclients = heartbeats.getdead(timeout)
             if deadclients:
-                print("--- Dead heartbeat clients ---")
+                print("--- silent hearts ---")
                 for client in deadclients:
                     print("{0[0]} (Last heartbeat: {0[1]})".format(client))
                     logger.info('DEAD {0[0]} ({0[1]})'.format(client))
