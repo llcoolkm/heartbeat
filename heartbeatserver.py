@@ -10,12 +10,13 @@
 # ./heartbeatserver.py <port>
 #
 #------------------------------------------------------------------------------
-from socket import socket, gethostbyname, AF_INET, SOCK_DGRAM
+from socket import socket, gethostbyname, AF_INET, SOCK_DGRAM, gethostname
 from threading import Lock, Thread, Event
 from time import time, sleep
 from datetime import datetime
 import sys
 import logging
+import smtplib
 
 # Listening port
 port = 9999
@@ -25,11 +26,17 @@ timeout = 60
 logfile = 'heartbeat.log'
 # Loglevel
 loglevel = 'INFO'
+# SMTP server
+smtphost = 'localhost'
+smtpport = 25
+smtpfrom = 'km@grogg.org'
+smtprcvr = 'km@grogg.org'
+
 
 # class heartbeatdictionary: {{{
 #------------------------------------------------------------------------------
 class heartbeatdictionary:
-    """ The dictionary of heartbeats """
+    """The dictionary of heartbeats"""
 
 # def __init__(self): {{{
 #------------------------------------------------------------------------------
@@ -47,8 +54,7 @@ class heartbeatdictionary:
 # def getclients(self): {{{
 #------------------------------------------------------------------------------
     def getclients(self):
-        """ Return a list of clients and last heartbeat """
-
+        """Return a list of clients and last heartbeat"""
         clients = []
 
         # Create a list of keys
@@ -64,8 +70,7 @@ class heartbeatdictionary:
 # def update(self, entry): {{{
 #------------------------------------------------------------------------------
     def update(self, entry):
-        """ Create or update heartbeat entry """
-
+        """Create or update heartbeat entry"""
         self.lock.acquire()
         self.dictionary[entry] = time()
         self.lock.release()
@@ -77,7 +82,7 @@ class heartbeatdictionary:
 # def getdead(self, entry): {{{
 #------------------------------------------------------------------------------
     def getdead(self, timeout):
-        """ Returns a list of entries older than timeout """
+        """Returns a list of entries older than timeout"""
 
         clients = []
         when = time() - timeout
@@ -96,7 +101,7 @@ class heartbeatdictionary:
 # def isotime(self, time): {{{
 #------------------------------------------------------------------------------
     def isotime(self, time):
-        """ Convert epoch to isotime """
+        """Convert epoch to isotime"""
         return '{}'.format(datetime.fromtimestamp(time).strftime('%Y-%m-%d %H:%M:%S'))
 
 # }}}
@@ -104,8 +109,10 @@ class heartbeatdictionary:
 # class receiveheartbeat(Thread): {{{
 #------------------------------------------------------------------------------
 class receiveheartbeat(Thread):
-    """ A thread class that listens to heartbeats and logs them in the
-    heartbeat dictionary """
+    """
+    A thread class that listens to heartbeats and logs them in the heartbeat
+    dictionary
+    """
 
 
 # def __init__(self, heartbeatevent, updatedict, port): {{{
@@ -125,7 +132,7 @@ class receiveheartbeat(Thread):
 # def __repr__(self): {{{
 #------------------------------------------------------------------------------
     def __repr__(self):
-        """ Describe ourself """
+        """Describe ourself"""
         return "Heartbeat server listening port {}".format(self.port)
 
 
@@ -133,7 +140,7 @@ class receiveheartbeat(Thread):
 # def run(self): {{{
 #------------------------------------------------------------------------------
     def run(self):
-        """ Wait on the socket as long as the thread running event is set """
+        """Wait on the socket as long as the thread running event is set"""
 
         while self.running.is_set():
             # Wait wait wait for that socket to return
@@ -153,9 +160,10 @@ class receiveheartbeat(Thread):
 # def main(): {{{
 #------------------------------------------------------------------------------
 def main():
-    """ Listen to the heartbeats and report inactive clients """
+    """Listen to the heartbeats and report inactive clients"""
 
     global port, timeout, logfile, loglevel
+    global smtphost, smtpport, smtpfrom, smtprcvr
 
     # Setup logging
     logger = logging.getLogger('heartbeat')
@@ -168,9 +176,9 @@ def main():
     logger.addHandler(fh)
 
     # Decide heartbeat timeout and server listening port
-    if len(sys.argv)>1:
+    if len(sys.argv) > 1:
         port=int(sys.argv[1])
-    if len(sys.argv)>2:
+    if len(sys.argv) > 2:
         timeout=int(sys.argv[2])
 
     # Create and set the thread event object
@@ -208,6 +216,7 @@ def main():
                 for client in deadclients:
                     print("{0[0]} (Last heartbeat: {0[1]})".format(client))
                     logger.info('DEAD {0[0]} ({0[1]})'.format(client))
+                    sendalert(client)
             sleep(timeout)
 
         # Exit on ctrl-c but will only work if the server socket receives one
@@ -223,11 +232,29 @@ def main():
 # }}}
 # def handle_silent(): {{{
 #------------------------------------------------------------------------------
-def handle_silent():
-    """  """
+def sendalert(client):
+    """Send email alert"""
+
+    hostname = gethostname()
+    message = """Subject: TELGE Heartbeat ALERT {client} is DOWN
+
+{client} is DOWN since {isotime}
+
+/heartbeat server on {hostname}
+"""
+
+    try:
+        smtpserver = smtplib.SMTP(smtphost, smtpport)
+        smtpserver.ehlo()
+        smtpserver.sendmail(smtpfrom, smtprcvr, message
+            .format(client=client[0], isotime=client[1], hostname=hostname))
+    except Exception as e:
+        print(e)
+#    finally:
+#        if smtpserver:
+#            smtpserver.quit() 
 
     return None
-
 
 
 if __name__ == '__main__':
