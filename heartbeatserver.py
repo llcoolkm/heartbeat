@@ -28,7 +28,7 @@ logfile = 'heartbeat.log'
 loglevel = 'INFO'
 # SMTP server
 smtphost = 'localhost'
-smtpport = 25
+smtpport = 1025
 smtpfrom = 'km@grogg.org'
 smtprcvr = 'km@grogg.org'
 
@@ -54,50 +54,72 @@ class heartbeatdictionary:
 # def getclients(self): {{{
 #------------------------------------------------------------------------------
     def getclients(self):
-        """Return a list of clients and last heartbeat"""
+        """Return a list of known clients and last heartbeat"""
         clients = []
 
         # Create a list of keys
         self.lock.acquire()
         for key in self.dictionary.keys():
-            clients.append([key, self.isotime(self.dictionary[key])])
+            clients.append([key, self.isotime(self.dictionary[key][0]),
+                self.dictionary[key][1]])
+        self.lock.release()
+
+        return clients
+
+# def getaliveclients(self): {{{
+#------------------------------------------------------------------------------
+    def getaliveclients(self):
+        """Return a list of alive clients and last heartbeat"""
+        clients = []
+
+        # Create a list of keys
+        self.lock.acquire()
+        for key in self.dictionary.keys():
+            # Only return alive clients
+            if self.dictionary[key][1] > 0:
+                clients.append([key, self.isotime(self.dictionary[key][0])])
         self.lock.release()
 
         return clients
 
 
 # }}}
-# def update(self, entry): {{{
+# def getdeadclients(self, entry): {{{
 #------------------------------------------------------------------------------
-    def update(self, entry):
-        """Create or update heartbeat entry"""
-        self.lock.acquire()
-        self.dictionary[entry] = time()
-        self.lock.release()
-
-        return None
-
-
-# }}}
-# def getdead(self, entry): {{{
-#------------------------------------------------------------------------------
-    def getdead(self, timeout):
-        """Returns a list of entries older than timeout"""
-
+    def getdeadclients(self, timeout):
+        """Returns a list of dead clients older than timeout and not previously
+        reported as dead"""
         clients = []
         when = time() - timeout
 
         # Extract timed out entries
         self.lock.acquire()
         for key in self.dictionary.keys():
-            if self.dictionary[key] < when:
-                clients.append([key, self.isotime(self.dictionary[key])])
+            if self.dictionary[key][0] < when:
+                clients.append([key, self.isotime(self.dictionary[key][0]),
+                    self.dictionary[key][1]])
+                # Set dead clients to 0, this way we can distinguish recently
+                # deceased for alerting purposes
+                self.dictionary[key][1] = 0
+
         self.lock.release()
 
         return clients
 
 
 #}}}
+# def update(self, entry): {{{
+#------------------------------------------------------------------------------
+    def update(self, entry):
+        """Create or update heartbeat entry"""
+        self.lock.acquire()
+        self.dictionary[entry] = [time(), 1]
+        self.lock.release()
+
+        return None
+
+
+# }}}
 # def isotime(self, time): {{{
 #------------------------------------------------------------------------------
     def isotime(self, time):
@@ -177,9 +199,9 @@ def main():
 
     # Decide heartbeat timeout and server listening port
     if len(sys.argv) > 1:
-        port=int(sys.argv[1])
+        port = int(sys.argv[1])
     if len(sys.argv) > 2:
-        timeout=int(sys.argv[2])
+        timeout = int(sys.argv[2])
 
     # Create and set the thread event object
     heartbeatevent = Event()
@@ -199,24 +221,29 @@ def main():
     # Main loop which checks for dead clients every INTERVAL
     while True:
         try:
-            # Print heartbeats that have been heard
-            aliveclients = heartbeats.getclients()
+            # Print addresses where heartbeats are heard
+            aliveclients = heartbeats.getaliveclients()
             if aliveclients:
-                print("--- beating hearts ---")
+                print("--- alive clients ---")
                 for client in aliveclients:
                     print('{0[0]} (Last heartbeat: {0[1]})'.format(client))
                     logger.info('ALIVE {0[0]} ({0[1]})'.format(client))
-            else:
-                print("No heartbeats yet... it's very quiet out there")
 
-            # Check for dead clients and print them
-            deadclients = heartbeats.getdead(timeout)
+            # Print addresses where heartbeats have gone quiet
+            deadclients = heartbeats.getdeadclients(timeout)
             if deadclients:
-                print("--- silent hearts ---")
+                print("--- dead clients ---")
                 for client in deadclients:
                     print("{0[0]} (Last heartbeat: {0[1]})".format(client))
                     logger.info('DEAD {0[0]} ({0[1]})'.format(client))
-                    sendalert(client)
+                    # Only send an alert when the heartbeat goes silent
+                    if client[2] > 0:
+                        sendalert(client)
+
+            # Nothing!
+            if not aliveclients and not deadclients:
+                print("No heartbeats yet... it's quiet out there")
+
             sleep(timeout)
 
         # Exit on ctrl-c but will only work if the server socket receives one
@@ -230,7 +257,7 @@ def main():
 
 
 # }}}
-# def handle_silent(): {{{
+# def sendalert(client): {{{
 #------------------------------------------------------------------------------
 def sendalert(client):
     """Send email alert"""
