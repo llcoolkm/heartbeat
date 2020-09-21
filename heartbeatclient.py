@@ -17,10 +17,12 @@ port = 9999
 # Heartbeat send interval
 interval = 20
 
-if len(sys.argv)>1:
-    server=str(sys.argv[1])
-if len(sys.argv)>2:
-    port=int(sys.argv[2])
+if len(sys.argv) > 1:
+    server = str(sys.argv[1])
+if len(sys.argv) > 2:
+    port = int(sys.argv[2])
+if len(sys.argv) > 3:
+    interval = int(sys.argv[3])
 
 print('--- Heartbeat client ---')
 print('Sending heartbeat every {} second to server {}:{}'.format(interval,
