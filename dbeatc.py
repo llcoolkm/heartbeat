@@ -1,44 +1,50 @@
 #!/usr/bin/env python3
-#
-# Sends an UDP packet to the heartbeat server every X seconds.
-#
-# ./dbeatc.py <server> <port> <interval>
-#
-# -----------------------------------------------------------------------------
+"""
+Heartbeat client.
 
-from datetime import datetime
-from socket import socket, AF_INET, SOCK_DGRAM
+Sends a UDP BEAT packet to the heartbeat server every interval seconds.
+"""
+
+from __future__ import annotations
+
+import argparse
+import socket
 import sys
-from time import time, sleep
+from datetime import datetime
+from time import sleep
 
-# Defaults
-server = '127.0.0.1'
-port = 9999
-interval = 20
 
-# Arguments
-if len(sys.argv) == 1:
-    print('Usage: ./dbeatc.py <server> <port> <interval>')
-    sys.exit(0)
-if len(sys.argv) > 1:
-    server = str(sys.argv[1])
-if len(sys.argv) > 2:
-    port = int(sys.argv[2])
-if len(sys.argv) > 3:
-    interval = int(sys.argv[3])
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description='UDP heartbeat client')
+    parser.add_argument('server', nargs='?', default='127.0.0.1',
+                        help='server address (default: 127.0.0.1)')
+    parser.add_argument('port', nargs='?', type=int, default=9999,
+                        help='server port (default: 9999)')
+    parser.add_argument('interval', nargs='?', type=int, default=20,
+                        help='seconds between beats (default: 20)')
+    return parser.parse_args(argv)
 
-print('--- Heartbeat client ---')
-print(f'Sending heartbeat every {interval} second to server {server}:{port}')
 
-# Bind a socket
-csocket = socket(AF_INET, SOCK_DGRAM)
+def main(argv: list[str] | None = None) -> int:
+    args = parse_args(argv)
+    print(f'Heartbeat client -> {args.server}:{args.port} '
+          f'every {args.interval}s')
 
-# Forever send our heartbeat
-while True:
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
-        csocket.sendto('BEAT'.encode(), (server, port))
-        print(f'Sent beat: {datetime.fromtimestamp(
-            time()).strftime('%Y-%m-%d %H:%M:%S')}')
-        sleep(interval)
+        while True:
+            try:
+                sock.sendto(b'BEAT', (args.server, args.port))
+                stamp = datetime.now().isoformat(sep=' ', timespec='seconds')
+                print(f'Sent beat: {stamp}')
+            except OSError as e:
+                print(f'Send failed: {e}', file=sys.stderr)
+            sleep(args.interval)
     except KeyboardInterrupt:
-        sys.exit(0)
+        return 0
+    finally:
+        sock.close()
+
+
+if __name__ == '__main__':
+    sys.exit(main())
